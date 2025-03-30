@@ -17,8 +17,8 @@ ADD_WORK_MENU = 2 # меню доюавления работ
 
 user_state = {}
 
-count_price = int()
-count_all = int()
+count_price = int() # сумма за текущий месяц
+count_all = int() # сумма за все время
 
 
 
@@ -31,10 +31,9 @@ def start(message):
     btn1 = types.KeyboardButton("📋 Главное меню")
     btn2 = types.KeyboardButton("ℹ️ Информация")
     btn3 = types.KeyboardButton("ℹ️️ начать подсчет зарплаты")
-    btn4 = types.KeyboardButton("ℹ️️ итог за сутки")
-    btn5 = types.KeyboardButton("ℹ️️ итог за месяц")
-    btn6 = types.KeyboardButton("ℹ️ итог за все время")
-    markup.add(btn1, btn2, btn3,btn4,btn5,btn6)
+    btn4 = types.KeyboardButton("ℹ️️ итог за месяц")
+    btn5 = types.KeyboardButton("ℹ️ итог за все время")
+    markup.add(btn1, btn2, btn3,btn4,btn5)
 
     bot.send_message(message.chat.id, "Добро пожаловать! Выберите пункт меню:", reply_markup=markup)
 
@@ -43,7 +42,7 @@ def start(message):
 
 @bot.message_handler(content_types=['text'])
 def handle_text(message, massage=None, count_all=int(), count_price=int()):
-    if message.text == "📋 Главное меню":
+    if message.text == "📋 Главное меню":  # кнопка главного меню
         markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
         btn1 = types.KeyboardButton("📋 Главное меню")
         btn2 = types.KeyboardButton("ℹ️ Информация")
@@ -56,18 +55,17 @@ def handle_text(message, massage=None, count_all=int(), count_price=int()):
         bot.send_message(message.chat.id, "Добро пожаловать! Выберите пункт меню:", reply_markup=markup)
 
 
-    elif message.text == "ℹ️ Информация":
+    elif message.text == "ℹ️ Информация": # кнопка информация
 
         bot.send_message(message.chat.id, "Этот бот создан для подсчета зарплаты самозанятых монтажников МГТС.\n\n"
                                           "-Вы можете начать подсчет зарплаты в меню нажав кнопку 'ℹ️️ начать подсчет зарплаты'.\n\n"
-                                          "-Вы можете посмотреть итог за сутки нажав кнопку 'ℹ️️ итог за сутки'.\n\n"
                                           "-Вы можете посмотреть итог за месяц нажав кнопку 'ℹ️️ итог за месяц'.\n\n"
                                           "-Вы можете посмотреть итог за все время нажав кнопку 'ℹ️ итог за все время'.\n\n"
                                           "-Вы можете вернутся в начальное меню нажав кнопку '📋 Главное меню'.\n\n"
                                           'Хорошего дня!'
                         )
 
-    elif message.text == "ℹ️️ начать подсчет зарплаты":
+    elif message.text == "ℹ️️ начать подсчет зарплаты": # кнопка начать подсчет зарплаты
         user_state[message.from_user.id] = FIRST_WORK_MENU
         markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
         bt1 = types.KeyboardButton("добавление выполненых работ")
@@ -77,7 +75,7 @@ def handle_text(message, massage=None, count_all=int(), count_price=int()):
 
         bot.send_message(message.chat.id, "Выберите тип выполненной работы или выход в главное меню:", reply_markup=markup)
 
-    elif message.text == "добавление выполненых работ":
+    elif message.text == "добавление выполненых работ": # кнопка добавление выполненых работ
         user_state[message.from_user.id] = ADD_WORK_MENU
         markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
         btn_1 = types.KeyboardButton("подключение коннектор")
@@ -101,40 +99,18 @@ def handle_text(message, massage=None, count_all=int(), count_price=int()):
         bot.send_message(message.chat.id, "Выберите тип выполненной работы или выход в главное меню:",
                          reply_markup=markup)
 
-    elif message.text == "ℹ️️ итог за месяц":
+    elif message.text == "ℹ️️ итог за месяц": # кнопка итог за месяц показывает какая сумма получилась за текущий месяц
         bot.send_message(message.chat.id, f'сумма за месяц: {count_price} руб.')
 
-    elif message.text == "ℹ️ итог за все время":
+    elif message.text == "ℹ️ итог за все время": # кнопка итог за все время показывает какая сумма получилась за все время со сводкой по каждому месяцу
         bot.send_message(message.chat.id, f'сумма за все время: {count_all} руб.')
 
+        # обнуление итогов за месяц с сохранением в отдельную переменную с датой текущего сохранения
     elif message.text == "обнуление мессяца/сохранение итогов":
         count_all += count_price
         count_price = int(0)
         bot.send_message(message.chat.id, f'месяц обнулен. сумма: {count_price} руб. \n'
                                           f'итог за все время: {count_all} руб. \n'f'')
-
-
-        # if message.text == "основные работы":
-        #     user_state[message.from_user.id] = ADD_WORK_MENU
-        #     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-        #     btn_1 = types.KeyboardButton("подключение коннектор")
-        #     btn_2 = types.KeyboardButton("подключение сварка")
-        #     btn_3 = types.KeyboardButton("подключение доп")
-        #     btn_4 = types.KeyboardButton("кроссировка")
-        #     btn_5 = types.KeyboardButton("доплата")
-        #     btn_6 = types.KeyboardButton("обслуживание")
-        #     btn_7 = types.KeyboardButton("обслуживание область")
-        #     btn_8 = types.KeyboardButton("замена оборудования")
-        #     btn_9 = types.KeyboardButton("подключение кабель проложен")
-        #     btn_10 = types.KeyboardButton("назад")
-        #     btn_11 = types.KeyboardButton("главное меню")
-        #     markup.add(btn_1, btn_2, btn_3, btn_4, btn_5, btn_6, btn_7, btn_8, btn_9, btn_10, btn_11)
-        #
-        #     bot.send_message(message.chat.id, "Выберите тип выполненной работы или выход в главное меню:", reply_markup=markup)
-
-
-
-
 
 
 
