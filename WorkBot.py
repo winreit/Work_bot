@@ -1,119 +1,293 @@
 import telebot
 from telebot import types
-import os
-import time
-import works
-from telebot.states import StatesGroup, State
+import sqlite3
+from datetime import datetime
 
-token = '7988828975:AAFbKaz33H6kD3Mt5aXfJ-hxBwtlFkIWPuM'
+from token_id import id_admin, TOKEN # Токен бота и ID администратора хранятся в файле token_id.py их нужно создавать
+                                     # самостоятельно (см. README.md)
+from works import WORKS
 
-bot = telebot.TeleBot(token)
-
-MAIN_MENU = 0 # главное меню
-FIRST_WORK_MENU = 1 # меню работ
-ADD_WORK_MENU = 2 # меню доюавления работ
+# Укажите ваш токен бота
+bot = telebot.TeleBot(TOKEN)
 
 
 
-user_state = {}
+# Инициализация базы данных
+def init_db():
+    conn = sqlite3.connect('salary.db')
+    cursor = conn.cursor()
 
-count_price = int() # сумма за текущий месяц
-count_all = int() # сумма за все время
+    # Таблица пользователей
+    cursor.execute('''CREATE TABLE IF NOT EXISTS users
+                     (user_id INTEGER PRIMARY KEY,
+                      username TEXT,
+                      first_name TEXT,
+                      last_name TEXT,
+                      register_date TEXT)''')
+
+    # Таблица работ
+    cursor.execute('''CREATE TABLE IF NOT EXISTS works
+                     (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                      user_id INTEGER,
+                      work_type TEXT,
+                      price INTEGER,
+                      date TEXT,
+                      month INTEGER,
+                      year INTEGER,
+                      FOREIGN KEY(user_id) REFERENCES users(user_id))''')
+
+    # Таблица месячных итогов
+    cursor.execute('''CREATE TABLE IF NOT EXISTS monthly_totals
+                     (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                      user_id INTEGER,
+                      month INTEGER,
+                      year INTEGER,
+                      total INTEGER,
+                      save_date TEXT,
+                      FOREIGN KEY(user_id) REFERENCES users(user_id))''')
+
+    conn.commit()
+    conn.close()
 
 
+init_db()
 
+# Состояния бота
+MAIN_MENU = 0
+WORK_MENU = 1
+ADD_WORK_MENU = 2
+
+# Глобальный словарь для хранения состояний пользователей
+user_states = {}
+
+
+# Функции для работы с базой данных
+def get_or_create_user(user_id, username, first_name, last_name):
+    conn = sqlite3.connect('salary.db')
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT user_id FROM users WHERE user_id=?", (user_id,))
+    if not cursor.fetchone():
+        register_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        cursor.execute("INSERT INTO users VALUES (?, ?, ?, ?, ?)",
+                       (user_id, username, first_name, last_name, register_date))
+        conn.commit()
+
+    conn.close()
+
+
+def add_work(user_id, work_type):
+    conn = sqlite3.connect('salary.db')
+    cursor = conn.cursor()
+
+    price = WORKS[work_type]
+    now = datetime.now()
+    date_str = now.strftime("%Y-%m-%d %H:%M:%S")
+    month = now.month
+    year = now.year
+
+    cursor.execute("INSERT INTO works (user_id, work_type, price, date, month, year) VALUES (?, ?, ?, ?, ?, ?)",
+                   (user_id, work_type, price, date_str, month, year))
+
+    conn.commit()
+    conn.close()
+    return price
+
+
+def get_month_total(user_id):
+    conn = sqlite3.connect('salary.db')
+    cursor = conn.cursor()
+
+    now = datetime.now()
+    cursor.execute("SELECT SUM(price) FROM works WHERE user_id=? AND month=? AND year=?",
+                   (user_id, now.month, now.year))
+    total = cursor.fetchone()[0] or 0
+
+    conn.close()
+    return total
+
+
+def get_all_time_total(user_id):
+    conn = sqlite3.connect('salary.db')
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT SUM(price) FROM works WHERE user_id=?", (user_id,))
+    works_total = cursor.fetchone()[0] or 0
+
+    cursor.execute("SELECT SUM(total) FROM monthly_totals WHERE user_id=?", (user_id,))
+    monthly_total = cursor.fetchone()[0] or 0
+
+    conn.close()
+    return works_total + monthly_total
+
+
+def save_month(user_id):
+    conn = sqlite3.connect('salary.db')
+    cursor = conn.cursor()
+
+    now = datetime.now()
+    month = now.month
+    year = now.year
+    save_date = now.strftime("%Y-%m-%d %H:%M:%S")
+
+    total = get_month_total(user_id)
+
+    if total > 0:
+        cursor.execute("INSERT INTO monthly_totals (user_id, month, year, total, save_date) VALUES (?, ?, ?, ?, ?)",
+                       (user_id, month, year, total, save_date))
+
+        cursor.execute("DELETE FROM works WHERE user_id=? AND month=? AND year=?",
+                       (user_id, month, year))
+
+        conn.commit()
+        conn.close()
+        return total
+
+    conn.close()
+    return 0
+
+
+# Обработчики команд
 @bot.message_handler(commands=['start'])
 def start(message):
     user_id = message.from_user.id
-    user_state[user_id] = MAIN_MENU
+    user_states[user_id] = MAIN_MENU
+
+    get_or_create_user(user_id, message.from_user.username,
+                       message.from_user.first_name, message.from_user.last_name)
 
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    btn1 = types.KeyboardButton("📋 Главное меню")
-    btn2 = types.KeyboardButton("ℹ️ Информация")
-    btn3 = types.KeyboardButton("ℹ️️ начать подсчет зарплаты")
-    btn4 = types.KeyboardButton("ℹ️️ итог за месяц")
-    btn5 = types.KeyboardButton("ℹ️ итог за все время")
-    markup.add(btn1, btn2, btn3,btn4,btn5)
+    buttons = [
+        "ℹ️ Информация",
+        "💰 Начать подсчет",
+        "📊 Итог за месяц",
+        "⏳ Итог за все время"
+    ]
+    markup.add(*[types.KeyboardButton(btn) for btn in buttons])
 
-    bot.send_message(message.chat.id, "Добро пожаловать! Выберите пункт меню:", reply_markup=markup)
-
-
-
-
-@bot.message_handler(content_types=['text'])
-def handle_text(message, massage=None, count_all=int(), count_price=int()):
-    if message.text == "📋 Главное меню":  # кнопка главного меню
-        markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-        btn1 = types.KeyboardButton("📋 Главное меню")
-        btn2 = types.KeyboardButton("ℹ️ Информация")
-        btn3 = types.KeyboardButton("ℹ️️ начать подсчет зарплаты")
-        btn4 = types.KeyboardButton("ℹ️️ итог за месяц")
-        btn5 = types.KeyboardButton("ℹ️ итог за все время")
-        markup.add(btn1, btn2, btn3,btn4,btn5)
+    bot.send_message(message.chat.id, "Добро пожаловать! Выберите действие:", reply_markup=markup)
 
 
-        bot.send_message(message.chat.id, "Добро пожаловать! Выберите пункт меню:", reply_markup=markup)
+@bot.message_handler(func=lambda message: message.text == "ℹ️ Информация")
+def info(message):
+    text = (
+        "📌 Этот бот помогает учитывать выполненные работы и зарплату\n\n"
+        "🔹 Для добавления работы нажмите '💰 Начать подсчет'\n"
+        "🔹 Просмотр текущего месяца - '📊 Итог за месяц'\n"
+        "🔹 Общая статистика - '⏳ Итог за все время'\n\n"
+        "Данные сохраняются автоматически!"
+    )
+    bot.send_message(message.chat.id, text)
 
 
-    elif message.text == "ℹ️ Информация": # кнопка информация
+@bot.message_handler(func=lambda message: message.text == "💰 Начать подсчет")
+def start_calculation(message):
+    user_id = message.from_user.id
+    user_states[user_id] = WORK_MENU
 
-        bot.send_message(message.chat.id, "Этот бот создан для подсчета зарплаты самозанятых монтажников МГТС.\n\n"
-                                          "-Вы можете начать подсчет зарплаты в меню нажав кнопку 'ℹ️️ начать подсчет зарплаты'.\n\n"
-                                          "-Вы можете посмотреть итог за месяц нажав кнопку 'ℹ️️ итог за месяц'.\n\n"
-                                          "-Вы можете посмотреть итог за все время нажав кнопку 'ℹ️ итог за все время'.\n\n"
-                                          "-Вы можете вернутся в начальное меню нажав кнопку '📋 Главное меню'.\n\n"
-                                          'Хорошего дня!'
-                        )
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    buttons = ["➕ Добавить работу", "💾 Сохранить месяц", "🔙 Назад"]
+    markup.add(*[types.KeyboardButton(btn) for btn in buttons])
 
-    elif message.text == "ℹ️️ начать подсчет зарплаты": # кнопка начать подсчет зарплаты
-        user_state[message.from_user.id] = FIRST_WORK_MENU
-        markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-        bt1 = types.KeyboardButton("добавление выполненых работ")
-        bt2 = types.KeyboardButton("обнуление мессяца/сохранение итогов")
-        bt3 = types.KeyboardButton("📋 Главное меню")
-        markup.add(bt1, bt2, bt3)
-
-        bot.send_message(message.chat.id, "Выберите тип выполненной работы или выход в главное меню:", reply_markup=markup)
-
-    elif message.text == "добавление выполненых работ": # кнопка добавление выполненых работ
-        user_state[message.from_user.id] = ADD_WORK_MENU
-        markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-        btn_1 = types.KeyboardButton("подключение коннектор")
-        btn_2 = types.KeyboardButton("подключение сварка")
-        btn_3 = types.KeyboardButton("подключение доп")
-        btn_4 = types.KeyboardButton("кроссировка")
-        btn_5 = types.KeyboardButton("доплата")
-        btn_6 = types.KeyboardButton("обслуживание")
-        btn_7 = types.KeyboardButton("обслуживание область")
-        btn_8 = types.KeyboardButton("замена оборудования")
-        btn_9 = types.KeyboardButton("подключение кабель проложен")
-        btn_10 = types.KeyboardButton("подключение интернета")
-        btn_11 = types.KeyboardButton("подключение тв")
-        btn_12 = types.KeyboardButton("доставка симкарты")
-        btn_13 = types.KeyboardButton("демонтаж онт")
-        btn_14 = types.KeyboardButton("демонтаж прочих")
-        btn_15 = types.KeyboardButton("камера")
-        btn_16 = types.KeyboardButton("📋 Главное меню")
-        markup.add(btn_1, btn_2, btn_3, btn_4, btn_5, btn_6, btn_7, btn_8, btn_9, btn_10, btn_11, btn_12, btn_13, btn_14, btn_15, btn_16)
-
-        bot.send_message(message.chat.id, "Выберите тип выполненной работы или выход в главное меню:",
-                         reply_markup=markup)
-
-    elif message.text == "ℹ️️ итог за месяц": # кнопка итог за месяц показывает какая сумма получилась за текущий месяц
-        bot.send_message(message.chat.id, f'сумма за месяц: {count_price} руб.')
-
-    elif message.text == "ℹ️ итог за все время": # кнопка итог за все время показывает какая сумма получилась за все время со сводкой по каждому месяцу
-        bot.send_message(message.chat.id, f'сумма за все время: {count_all} руб.')
-
-        # обнуление итогов за месяц с сохранением в отдельную переменную с датой текущего сохранения
-    elif message.text == "обнуление мессяца/сохранение итогов":
-        count_all += count_price
-        count_price = int(0)
-        bot.send_message(message.chat.id, f'месяц обнулен. сумма: {count_price} руб. \n'
-                                          f'итог за все время: {count_all} руб. \n'f'')
+    bot.send_message(message.chat.id, "Выберите действие:", reply_markup=markup)
 
 
+@bot.message_handler(func=lambda message: message.text == "➕ Добавить работу")
+def add_work_menu(message):
+    user_id = message.from_user.id
+    user_states[user_id] = ADD_WORK_MENU
+
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=3)
+    buttons = list(WORKS.keys()) + ["🔙 Назад"]
+    markup.add(*[types.KeyboardButton(btn) for btn in buttons])
+
+    bot.send_message(message.chat.id, "Выберите выполненную работу:", reply_markup=markup)
 
 
+@bot.message_handler(
+    func=lambda message: user_states.get(message.from_user.id) == ADD_WORK_MENU and message.text in WORKS)
+def process_work(message):
+    user_id = message.from_user.id
+    work_type = message.text
+    price = add_work(user_id, work_type)
 
-bot.polling(none_stop=True)
+    month_total = get_month_total(user_id)
+    all_time_total = get_all_time_total(user_id)
+
+    response = (
+        f"✅ Добавлено: {work_type} - {price} руб.\n"
+        f"📅 Текущий месяц: {month_total} руб.\n"
+        f"⏳ Всего: {all_time_total} руб."
+    )
+    bot.send_message(message.chat.id, response)
+
+
+@bot.message_handler(func=lambda message: message.text == "💾 Сохранить месяц")
+def process_save_month(message):
+    user_id = message.from_user.id
+    saved_amount = save_month(user_id)
+
+    if saved_amount > 0:
+        response = (
+            f"💾 Месяц сохранен!\n"
+            f"Сохраненная сумма: {saved_amount} руб.\n"
+            f"Теперь можно начать новый месяц."
+        )
+    else:
+        response = "Нет данных для сохранения за текущий месяц."
+
+    bot.send_message(message.chat.id, response)
+
+
+@bot.message_handler(func=lambda message: message.text == "📊 Итог за месяц")
+def show_month_total(message):
+    user_id = message.from_user.id
+    total = get_month_total(user_id)
+    bot.send_message(message.chat.id, f"📊 Итог за текущий месяц: {total} руб.")
+
+
+@bot.message_handler(func=lambda message: message.text == "⏳ Итог за все время")
+def show_all_time_total(message):
+    user_id = message.from_user.id
+    total = get_all_time_total(user_id)
+    bot.send_message(message.chat.id, f"⏳ Общий итог за все время: {total} руб.")
+
+
+@bot.message_handler(func=lambda message: message.text == "🔙 Назад")
+def back_handler(message):
+    user_id = message.from_user.id
+    current_state = user_states.get(user_id, MAIN_MENU)
+
+    if current_state == ADD_WORK_MENU:
+        user_states[user_id] = WORK_MENU
+        start_calculation(message)
+    elif current_state == WORK_MENU:
+        user_states[user_id] = MAIN_MENU
+        start(message)
+    else:
+        start(message)
+
+
+@bot.message_handler(commands=['cleardb'])
+def clear_database(message):
+    # Проверяем, что команду отправляет администратор (укажите ваш ID)
+    if message.from_user.id == id_admin:
+        conn = sqlite3.connect('salary.db')
+        cursor = conn.cursor()
+
+        # Очищаем все таблицы
+        cursor.execute("DELETE FROM works")
+        cursor.execute("DELETE FROM monthly_totals")
+        cursor.execute("DELETE FROM users")
+
+        conn.commit()
+        conn.close()
+
+        bot.reply_to(message, "✅ База данных полностью очищена!")
+    else:
+        bot.reply_to(message, "⛔ У вас нет прав для выполнения этой команды")
+
+# Запуск бота
+if __name__ == '__main__':
+    print("Бот запущен...")
+    bot.polling(none_stop=True)
