@@ -99,10 +99,13 @@ def get_month_total(user_id):
     cursor = conn.cursor()
 
     now = datetime.now()
-    cursor.execute("SELECT SUM(price) FROM works WHERE user_id=? AND month=? AND year=?",
-                   (user_id, now.month, now.year))
-    total = cursor.fetchone()[0] or 0
+    cursor.execute("""
+        SELECT COALESCE(SUM(price), 0) 
+        FROM works 
+        WHERE user_id=? AND month=? AND year=?
+    """, (user_id, now.month, now.year))
 
+    total = cursor.fetchone()[0]
     conn.close()
     return total
 
@@ -145,6 +148,28 @@ def save_month(user_id):
 
     conn.close()
     return 0
+
+def db_delete_last_work(user_id):
+    conn = sqlite3.connect('salary.db')
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT id, work_type, price from works
+        WHERE user_id = ?
+        ORDER BY id DESC
+        LIMIT 1
+    """, (user_id,))
+    last_work = cursor.fetchone()
+
+    if last_work:
+        work_id, work_type, price = last_work
+        cursor.execute("DELETE FROM works WHERE id = ?", (work_id,))
+        conn.commit()
+        conn.close()
+        return work_type, price
+    else:
+        conn.close()
+        return None, 0
 
 
 # Обработчики команд
@@ -198,10 +223,25 @@ def add_work_menu(message):
     user_states[user_id] = ADD_WORK_MENU
 
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=3)
-    buttons = list(WORKS.keys()) + ["🔙 Назад"]
+    buttons = list(WORKS.keys()) + ['🗑️ Удалить последнюю работу', "🔙 Назад"]
     markup.add(*[types.KeyboardButton(btn) for btn in buttons])
 
     bot.send_message(message.chat.id, "Выберите выполненную работу:", reply_markup=markup)
+
+
+@bot.message_handler(func=lambda message: message.text == '🗑️ Удалить последнюю работу')
+def delete_last_work(message):
+    user_id = message.from_user.id
+    work_type, price = db_delete_last_work(user_id)
+
+    if work_type:
+        response = (
+            f"❌ Удалено: {work_type} - {price} руб."
+        )
+    else:
+        response = "❌ Нечего удалять"
+
+    bot.send_message(message.chat.id, response)
 
 
 @bot.message_handler(
