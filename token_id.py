@@ -1,0 +1,2 @@
+id_admin = ''
+TOKEN = ''
