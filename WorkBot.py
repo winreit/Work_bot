@@ -1,20 +1,39 @@
+import os
 import telebot
 from telebot import types
 import sqlite3
 from datetime import datetime
+from flask import Flask, request
+from telebot import apihelper
 
-from token_id import id_admin, TOKEN # Токен бота и ID администратора хранятся в файле token_id.py их нужно создавать
-                                     # самостоятельно (см. README.md)
+from token_id import id_admin, TOKEN
 from works import WORKS
 
-# Укажите ваш токен бота
-bot = telebot.TeleBot(TOKEN)
+TOKEN = TOKEN.strip()
 
+DB_PATH = '/home/Winreii/work_bot/salary.db'
+
+apihelper.proxy = {'https': 'http://proxy.server:3128'}
+bot = telebot.TeleBot(TOKEN, threaded=False)
+
+app = Flask(__name__)
+
+WEBHOOK_URL = f"https://winreii.pythonanywhere.com/{TOKEN}"
+
+@app.route(f'/{TOKEN}', methods=['POST'])
+def redirect_message():
+    if request.headers.get('content-type') == 'application/json':
+        json_string = request.get_data().decode('utf-8')
+        update = telebot.types.Update.de_json(json_string)
+        bot.process_new_updates([update])
+        return ''
+    else:
+        return 'Forbidden', 403
 
 
 # Инициализация базы данных
 def init_db():
-    conn = sqlite3.connect('salary.db')
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
     # Таблица пользователей
@@ -63,7 +82,7 @@ user_states = {}
 
 # Функции для работы с базой данных
 def get_or_create_user(user_id, username, first_name, last_name):
-    conn = sqlite3.connect('salary.db')
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
     cursor.execute("SELECT user_id FROM users WHERE user_id=?", (user_id,))
@@ -77,7 +96,7 @@ def get_or_create_user(user_id, username, first_name, last_name):
 
 
 def add_work(user_id, work_type):
-    conn = sqlite3.connect('salary.db')
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
     price = WORKS[work_type]
@@ -95,13 +114,13 @@ def add_work(user_id, work_type):
 
 
 def get_month_total(user_id):
-    conn = sqlite3.connect('salary.db')
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
     now = datetime.now()
     cursor.execute("""
-        SELECT COALESCE(SUM(price), 0) 
-        FROM works 
+        SELECT COALESCE(SUM(price), 0)
+        FROM works
         WHERE user_id=? AND month=? AND year=?
     """, (user_id, now.month, now.year))
 
@@ -111,7 +130,7 @@ def get_month_total(user_id):
 
 
 def get_all_time_total(user_id):
-    conn = sqlite3.connect('salary.db')
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
     cursor.execute("SELECT SUM(price) FROM works WHERE user_id=?", (user_id,))
@@ -125,7 +144,7 @@ def get_all_time_total(user_id):
 
 
 def save_month(user_id):
-    conn = sqlite3.connect('salary.db')
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
     now = datetime.now()
@@ -150,7 +169,7 @@ def save_month(user_id):
     return 0
 
 def db_delete_last_work(user_id):
-    conn = sqlite3.connect('salary.db')
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
     cursor.execute("""
@@ -310,12 +329,10 @@ def back_handler(message):
 
 @bot.message_handler(commands=['cleardb'])
 def clear_database(message):
-    # Проверяем, что команду отправляет администратор (укажите ваш ID)
     if message.from_user.id == id_admin:
-        conn = sqlite3.connect('salary.db')
+        conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
 
-        # Очищаем все таблицы
         cursor.execute("DELETE FROM works")
         cursor.execute("DELETE FROM monthly_totals")
         cursor.execute("DELETE FROM users")
@@ -326,8 +343,3 @@ def clear_database(message):
         bot.reply_to(message, "✅ База данных полностью очищена!")
     else:
         bot.reply_to(message, "⛔ У вас нет прав для выполнения этой команды")
-
-# Запуск бота
-if __name__ == '__main__':
-    print("Бот запущен...")
-    bot.polling(none_stop=True)
