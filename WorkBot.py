@@ -8,14 +8,17 @@ from telebot import apihelper
 
 from token_id import id_admin, TOKEN
 from works import WORKS
+from middleware import LimitedTimeMiddleware
 
 TOKEN = TOKEN.strip()
 
 DB_PATH = '/home/Winreii/work_bot/salary.db'
 
 apihelper.proxy = {'https': 'http://proxy.server:3128'}
-bot = telebot.TeleBot(TOKEN, threaded=False)
-
+bot = telebot.TeleBot(TOKEN, threaded=False, use_class_middlewares=True)
+bot.setup_middleware(
+    LimitedTimeMiddleware(bot)
+)
 app = Flask(__name__)
 
 WEBHOOK_URL = f"https://winreii.pythonanywhere.com/{TOKEN}"
