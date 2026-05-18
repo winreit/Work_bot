@@ -21,6 +21,11 @@ bot.setup_middleware(
 )
 app = Flask(__name__)
 
+@app.route('/', methods=['GET'])
+def health_check():
+    '''Метод для проверки работаспособности приложения и бота'''
+    return 'Бот работает нормально!', 200
+
 WEBHOOK_URL = f"https://winreii.pythonanywhere.com/{TOKEN}"
 
 @app.route(f'/{TOKEN}', methods=['POST'])
